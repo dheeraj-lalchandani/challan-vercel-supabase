@@ -1,5 +1,3 @@
-
-// 3. API: /pages/api/process-csv.js
 import formidable from 'formidable';
 import fs from 'fs';
 import { parse } from 'csv-parse/sync';
@@ -60,10 +58,16 @@ export default async function handler(req, res) {
     const inputPath = `inputs/input_${txnId}.csv`;
     const outputPath = `outputs/output_${txnId}.csv`;
 
-    await supabase.storage.from('challan-files').upload(inputPath, inputBuffer, {
+    // Upload input file
+    const { data: inputUpload, error: inputError } = await supabase.storage.from('challan-files').upload(inputPath, inputBuffer, {
       contentType: 'text/csv',
       upsert: true,
     });
+
+    if (inputError) {
+      console.error("❌ Failed to upload input file:", inputError);
+      return res.status(500).json({ error: 'Failed to upload input file' });
+    }
 
     const inputUrl = supabase.storage.from('challan-files').getPublicUrl(inputPath).data.publicUrl;
 
@@ -104,28 +108,43 @@ export default async function handler(req, res) {
     }
 
     const outputCSV = stringify(results, { header: true });
-    await supabase.storage.from('challan-files').upload(outputPath, outputCSV, {
+
+    const { data: outputUpload, error: outputError } = await supabase.storage.from('challan-files').upload(outputPath, outputCSV, {
       contentType: 'text/csv',
       upsert: true,
     });
 
-    const outputUrl = supabase.storage.from('challan-files').getPublicUrl(outputPath).data.publicUrl;
+    if (outputError) {
+      console.error("❌ Failed to upload output file:", outputError);
+      return res.status(500).json({ error: 'Failed to upload output file' });
+    }
+
+    const { data: publicURL, error: publicError } = supabase.storage.from('challan-files').getPublicUrl(outputPath);
+    if (publicError) {
+      console.error("❌ Failed to get public URL:", publicError);
+      return res.status(500).json({ error: 'Failed to generate public URL' });
+    }
+
+    console.log("✅ Uploaded output file:", outputPath);
+    console.log("🌐 Output File URL:", publicURL.publicUrl);
 
     const { error: insertError } = await supabase.from('transactions').insert([
       {
         input_file_url: inputUrl,
         input_count: inputRecords.length,
-        output_file_url: outputUrl,
+        output_file_url: publicURL.publicUrl,
         output_count: results.length,
         status: results.length > 0 ? 'success' : 'no results',
       },
     ]);
 
-    if (insertError) throw insertError;
+    if (insertError) {
+      console.error("❌ Failed to insert transaction:", insertError);
+    }
 
-    res.status(200).json({ downloadUrl: outputUrl });
+    res.status(200).json({ downloadUrl: publicURL.publicUrl });
   } catch (err) {
-    console.error('Error:', err);
+    console.error('🔥 Unexpected Error:', err);
     res.status(500).json({ error: err.message });
   }
 }
