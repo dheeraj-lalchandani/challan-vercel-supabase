@@ -72,24 +72,22 @@ export default async function handler(req, res) {
 
     const results = [];
 
-    // --- START: Dynamic IP Management ---
-    let effectiveIp = '14.142.186.142'; // fallback
+    let currentIp = '14.142.186.142'; // default IP
+    let ipType = 'default'; // 'default' or 'vercel'
 
-    async function fetchCurrentIp() {
+    async function fetchVercelIp() {
       try {
-        const ipCheck = await fetch('https://api.ipify.org?format=json');
-        const ipData = await ipCheck.json();
+        const ipRes = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipRes.json();
         if (ipData?.ip) {
-          console.log("🌐 Updated outbound IP:", ipData.ip);
+          console.log("🌐 Detected Vercel IP:", ipData.ip);
           return ipData.ip;
         }
-      } catch (err) {
-        console.warn("⚠️ Failed to fetch outbound IP. Using fallback IP.");
+      } catch (e) {
+        console.warn("⚠️ Failed to fetch Vercel IP");
       }
-      return effectiveIp;
+      return null;
     }
-
-    effectiveIp = await fetchCurrentIp();
 
     for (let i = 0; i < inputRecords.length; i++) {
       const row = inputRecords[i];
@@ -115,16 +113,28 @@ export default async function handler(req, res) {
         });
       };
 
-      let response = await makeRequest(effectiveIp);
+      let response = await makeRequest(currentIp);
 
       if (!response.ok) {
-        console.warn(`⚠️ API failed for ${vehicle_number}. Retrying with refreshed IP...`);
-        effectiveIp = await fetchCurrentIp();
-        response = await makeRequest(effectiveIp);
+        console.warn(`⚠️ ${vehicle_number}: Failed with ${ipType} IP (${currentIp}).`);
+
+        if (ipType === 'default') {
+          const vercelIp = await fetchVercelIp();
+          if (!vercelIp) {
+            console.error(`❌ ${vehicle_number}: Could not fetch Vercel IP. Skipping.`);
+            continue;
+          }
+
+          currentIp = vercelIp;
+          ipType = 'vercel';
+          console.log(`🔄 Switching to Vercel IP: ${currentIp}`);
+
+          response = await makeRequest(currentIp);
+        }
       }
 
       if (!response.ok) {
-        console.error(`❌ API retry failed for ${vehicle_number}. Skipping.`);
+        console.error(`❌ ${vehicle_number}: Failed with both default and Vercel IP. Skipping.`);
         continue;
       }
 
@@ -143,7 +153,6 @@ export default async function handler(req, res) {
         });
       }
     }
-    // --- END: Dynamic IP Management ---
 
     const outputCSV = stringify(results, { header: true });
 
