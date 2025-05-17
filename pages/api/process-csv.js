@@ -58,8 +58,7 @@ export default async function handler(req, res) {
     const inputPath = `inputs/input_${txnId}.csv`;
     const outputPath = `outputs/output_${txnId}.csv`;
 
-    // Upload input file
-    const { data: inputUpload, error: inputError } = await supabase.storage.from('challan-files').upload(inputPath, inputBuffer, {
+    const { error: inputError } = await supabase.storage.from('challan-files').upload(inputPath, inputBuffer, {
       contentType: 'text/csv',
       upsert: true,
     });
@@ -72,6 +71,7 @@ export default async function handler(req, res) {
     const inputUrl = supabase.storage.from('challan-files').getPublicUrl(inputPath).data.publicUrl;
 
     const results = [];
+
     for (let row of inputRecords) {
       const vehicle_number = row.vehicle_number;
 
@@ -81,7 +81,6 @@ export default async function handler(req, res) {
           'X-Ipay-Auth-Code': '1',
           'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
           'X-Ipay-Client-Secret': process.env.IPAY_CLIENT_SECRET,
-          'X-Ipay-Endpoint-Ip': '14.142.186.142',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -93,7 +92,14 @@ export default async function handler(req, res) {
         }),
       });
 
+      if (!response.ok) {
+        console.error(`❌ API call failed for ${vehicle_number}: Status ${response.status}`);
+        continue;
+      }
+
       const data = await response.json();
+      console.log(`📡 API response for ${vehicle_number}:`, JSON.stringify(data));
+
       const challans = data?.data?.vehicalData || [];
       for (const ch of challans) {
         results.push({
@@ -109,7 +115,7 @@ export default async function handler(req, res) {
 
     const outputCSV = stringify(results, { header: true });
 
-    const { data: outputUpload, error: outputError } = await supabase.storage.from('challan-files').upload(outputPath, outputCSV, {
+    const { error: outputError } = await supabase.storage.from('challan-files').upload(outputPath, outputCSV, {
       contentType: 'text/csv',
       upsert: true,
     });
@@ -119,20 +125,14 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Failed to upload output file' });
     }
 
-    const { data: publicURL, error: publicError } = supabase.storage.from('challan-files').getPublicUrl(outputPath);
-    if (publicError) {
-      console.error("❌ Failed to get public URL:", publicError);
-      return res.status(500).json({ error: 'Failed to generate public URL' });
-    }
-
-    console.log("✅ Uploaded output file:", outputPath);
-    console.log("🌐 Output File URL:", publicURL.publicUrl);
+    const outputUrl = supabase.storage.from('challan-files').getPublicUrl(outputPath).data.publicUrl;
+    console.log("✅ Output file uploaded:", outputUrl);
 
     const { error: insertError } = await supabase.from('transactions').insert([
       {
         input_file_url: inputUrl,
         input_count: inputRecords.length,
-        output_file_url: publicURL.publicUrl,
+        output_file_url: outputUrl,
         output_count: results.length,
         status: results.length > 0 ? 'success' : 'no results',
       },
@@ -142,9 +142,10 @@ export default async function handler(req, res) {
       console.error("❌ Failed to insert transaction:", insertError);
     }
 
-    res.status(200).json({ downloadUrl: publicURL.publicUrl });
+    res.status(200).json({ downloadUrl: outputUrl });
   } catch (err) {
     console.error('🔥 Unexpected Error:', err);
     res.status(500).json({ error: err.message });
   }
 }
+
