@@ -72,29 +72,59 @@ export default async function handler(req, res) {
 
     const results = [];
 
-    for (let row of inputRecords) {
+    // --- START: Dynamic IP Management ---
+    let effectiveIp = '14.142.186.142'; // fallback
+
+    async function fetchCurrentIp() {
+      try {
+        const ipCheck = await fetch('https://api.ipify.org?format=json');
+        const ipData = await ipCheck.json();
+        if (ipData?.ip) {
+          console.log("🌐 Updated outbound IP:", ipData.ip);
+          return ipData.ip;
+        }
+      } catch (err) {
+        console.warn("⚠️ Failed to fetch outbound IP. Using fallback IP.");
+      }
+      return effectiveIp;
+    }
+
+    effectiveIp = await fetchCurrentIp();
+
+    for (let i = 0; i < inputRecords.length; i++) {
+      const row = inputRecords[i];
       const vehicle_number = row.vehicle_number;
 
-      const response = await fetch('https://api.instantpay.in/identity/vehicleChallan', {
-        method: 'POST',
-        headers: {
-          'X-Ipay-Auth-Code': '1',
-          'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
-          'X-Ipay-Client-Secret': process.env.IPAY_CLIENT_SECRET,
-          'X-Ipay-Endpoint-Ip': '54.165.249.144',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          vehicleRegistrationNumber: vehicle_number,
-          consent: 'Y',
-          latitude: '11.1019',
-          longitude: '26.9109',
-          externalRef: txnId,
-        }),
-      });
+      const makeRequest = async (ip) => {
+        return await fetch('https://api.instantpay.in/identity/vehicleChallan', {
+          method: 'POST',
+          headers: {
+            'X-Ipay-Auth-Code': '1',
+            'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
+            'X-Ipay-Client-Secret': process.env.IPAY_CLIENT_SECRET,
+            'X-Ipay-Endpoint-Ip': ip,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            vehicleRegistrationNumber: vehicle_number,
+            consent: 'Y',
+            latitude: '11.1019',
+            longitude: '26.9109',
+            externalRef: txnId + '-' + i,
+          }),
+        });
+      };
+
+      let response = await makeRequest(effectiveIp);
 
       if (!response.ok) {
-        console.error(`❌ API call failed for ${vehicle_number}: Status ${response.status}`);
+        console.warn(`⚠️ API failed for ${vehicle_number}. Retrying with refreshed IP...`);
+        effectiveIp = await fetchCurrentIp();
+        response = await makeRequest(effectiveIp);
+      }
+
+      if (!response.ok) {
+        console.error(`❌ API retry failed for ${vehicle_number}. Skipping.`);
         continue;
       }
 
@@ -113,6 +143,7 @@ export default async function handler(req, res) {
         });
       }
     }
+    // --- END: Dynamic IP Management ---
 
     const outputCSV = stringify(results, { header: true });
 
@@ -149,4 +180,3 @@ export default async function handler(req, res) {
     res.status(500).json({ error: err.message });
   }
 }
-
