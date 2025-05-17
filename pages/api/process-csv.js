@@ -81,6 +81,7 @@ export default async function handler(req, res) {
           'X-Ipay-Auth-Code': '1',
           'X-Ipay-Client-Id': process.env.IPAY_CLIENT_ID,
           'X-Ipay-Client-Secret': process.env.IPAY_CLIENT_SECRET,
+          'X-Ipay-Endpoint-Ip': '49.206.1.121',
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
