@@ -1,0 +1,19 @@
+{
+  "name": "challan-vercel-app",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.0.0",
+    "csv-parse": "^5.4.0",
+    "csv-stringify": "^6.3.0",
+    "formidable": "^2.0.1",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}
